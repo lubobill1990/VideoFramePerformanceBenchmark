@@ -1,12 +1,12 @@
 import { makeAutoObservable } from 'mobx';
 
 export class AppStore {
-  cameraWidth = 1280;
-  cameraHeight = 720;
-  copyX = 0;
-  copyY = 0;
-  copyWidth = 2;
-  copyHeight = 2;
+  cameraWidth = 1920;
+  cameraHeight = 1080;
+  copyXLocal = 0;
+  copyYLocal = 0;
+  copyWidthLocal = 2;
+  copyHeightLocal = 2;
   inputVideoTrack: MediaStreamVideoTrack | null = null;
   videoFrameProsessTimeList = [0];
 
@@ -14,30 +14,59 @@ export class AppStore {
     makeAutoObservable(this, {}, { autoBind: true });
   }
 
+  get copyX(): number {
+    return Math.min(Math.max(this.copyXLocal, 0), this.cameraWidth - 2);
+  }
+
+  get copyY(): number {
+    return Math.min(Math.max(this.copyYLocal, 0), this.cameraHeight - 2);
+  }
+
+  get copyWidth(): number {
+    return (
+      Math.round(
+        Math.min(
+          Math.max(this.copyWidthLocal, 2),
+          this.cameraWidth - this.copyX
+        ) / 2
+      ) * 2
+    );
+  }
+
+  get copyHeight(): number {
+    return (
+      Math.round(
+        Math.min(
+          Math.max(this.copyHeightLocal, 2),
+          this.cameraHeight - this.copyY
+        ) / 2
+      ) * 2
+    );
+  }
   setCopyX(x: number) {
-    this.copyX = Math.min(Math.max(x, 0), this.cameraWidth - this.copyWidth);
+    this.copyXLocal = x;
   }
 
   setCopyY(y: number) {
-    this.copyY = Math.min(Math.max(y, 0), this.cameraHeight - this.copyHeight);
+    this.copyYLocal = y;
   }
 
   setCopyWidth(width: number) {
-    this.copyWidth =
-      Math.round(
-        Math.min(Math.max(width, 2), this.cameraWidth - this.copyX) / 2
-      ) * 2;
+    this.copyWidthLocal = width;
   }
 
   setCopyHeight(height: number) {
-    this.copyHeight =
-      Math.round(
-        Math.min(Math.max(height, 2), this.cameraHeight - this.copyY) / 2
-      ) * 2;
+    this.copyHeightLocal = height;
   }
 
   setInputVideoTrack(track: MediaStreamVideoTrack | null) {
     this.inputVideoTrack = track;
+    console.log('setInputVideoTrack', track);
+  }
+
+  setCameraFrameSize(width: number, height: number) {
+    this.cameraWidth = width;
+    this.cameraHeight = height;
   }
 
   public get copiedBufferSize() {
@@ -59,6 +88,7 @@ export class AppStore {
       width: this.copyWidth,
       height: this.copyHeight,
     };
+    const arrayBuffer = this.arrayBuffer;
 
     return async (videoFrame: any, controller: any) => {
       const start = this.getCurrentTimestampInMilliseconds();
@@ -68,7 +98,7 @@ export class AppStore {
         duration: videoFrame.duration,
         visibleRect,
       });
-      await newFrame.copyTo(this.arrayBuffer);
+      await newFrame.copyTo(arrayBuffer);
       const end = this.getCurrentTimestampInMilliseconds();
       this.pushVideoFrameProcessTime(end - start);
 

@@ -11,13 +11,18 @@ const MediaStreamTrackGetter = observer(() => {
         video: {
           width: cameraWidth,
           height: cameraHeight,
+          deviceId: 'd4dde0d0-9076-41a4-b30d-c23fdec4fe1e',
         },
       })
       .then((stream) => {
         const videoTrack = stream.getVideoTracks()[0];
         setInputVideoTrack(videoTrack);
       });
-  }, [cameraHeight, cameraWidth]);
+
+    return () => {
+      setInputVideoTrack(null);
+    };
+  }, [cameraHeight, cameraWidth, setInputVideoTrack]);
 
   return null;
 });
@@ -28,20 +33,22 @@ const Input = observer(() => {
     copyHeight,
     copyX,
     copyY,
+    cameraHeight,
+    cameraWidth,
     setCopyX,
     setCopyY,
     setCopyWidth,
     setCopyHeight,
   } = useAppStore();
   return (
-    <div id='input-wrap'>
+    <div className='input-wrap'>
       <label htmlFor=''>
         X
         <input
           type='number'
           value={copyX}
           min={0}
-          max={1280 - copyWidth}
+          max={cameraWidth - 2}
           onChange={(e) => setCopyX(parseInt(e.target.value, 10))}
         />
       </label>
@@ -51,7 +58,7 @@ const Input = observer(() => {
           type='number'
           value={copyY}
           min={0}
-          max={720 - copyHeight}
+          max={cameraHeight - 2}
           onChange={(e) => setCopyY(parseInt(e.target.value, 10))}
         />
       </label>
@@ -62,7 +69,7 @@ const Input = observer(() => {
           value={copyWidth}
           min={2}
           step={2}
-          max={1280 - copyX}
+          max={cameraWidth - copyX}
           onChange={(e) => setCopyWidth(parseInt(e.target.value, 10))}
         />
       </label>
@@ -73,7 +80,7 @@ const Input = observer(() => {
           value={copyHeight}
           min={2}
           step={2}
-          max={720 - copyY}
+          max={cameraHeight - copyY}
           onChange={(e) => setCopyHeight(parseInt(e.target.value, 10))}
         />
       </label>
@@ -95,6 +102,28 @@ const Statistics = observer(() => {
   );
 });
 
+const CameraSizeSelector = observer(() => {
+  const { setCameraFrameSize, cameraWidth, cameraHeight } = useAppStore();
+
+  return (
+    <div className='input-wrap'>
+      <label htmlFor=''>
+        Camera resolution
+        <select
+          value={`${cameraWidth}x${cameraHeight}`}
+          onChange={(e) => {
+            const [width, height] = e.target.value.split('x');
+            setCameraFrameSize(parseInt(width, 10), parseInt(height, 10));
+          }}
+        >
+          <option value='1280x720'>1280x720</option>
+          <option value='1920x1080'>1920x1080</option>
+        </select>
+      </label>
+    </div>
+  );
+});
+
 const App = observer(() => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { processingGenerator } = useAppStore();
@@ -106,10 +135,15 @@ const App = observer(() => {
     const stream = new MediaStream([processingGenerator]);
     videoRef.current!.srcObject = stream;
     videoRef.current!.play();
+
+    return () => {
+      console.log('unmounting');
+    };
   }, [processingGenerator, videoRef]);
 
   return (
     <div className='App'>
+      <CameraSizeSelector></CameraSizeSelector>
       <MediaStreamTrackGetter></MediaStreamTrackGetter>
       <Input></Input>
       <Statistics></Statistics>
