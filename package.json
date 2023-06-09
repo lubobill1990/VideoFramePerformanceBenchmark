@@ -11,6 +11,7 @@
   "dependencies": {
     "@types/dom-mediacapture-transform": "^0.1.4",
     "@types/dom-webcodecs": "^0.1.5",
+    "gl-matrix": "^3.4.3",
     "lodash": "^4.17.21",
     "mobx": "^6.8.0",
     "mobx-react-lite": "^3.4.0",

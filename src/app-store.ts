@@ -1,5 +1,77 @@
 import { makeAutoObservable } from 'mobx';
 
+class TimeProfiler {
+  timeList: number[] = [];
+  startTime = 0;
+  endTime = 0;
+
+  constructor() {
+    makeAutoObservable(this, {}, { autoBind: true });
+  }
+  pushTime(time: number) {
+    this.timeList.push(time);
+    if (this.timeList.length > 100) {
+      this.timeList.shift();
+    }
+  }
+  get averageTime() {
+    if (this.timeList.length === 0) {
+      return 0;
+    }
+    return (
+      this.timeList.reduce((a, b) => a + b, 0) / this.timeList.length
+    ).toFixed(4);
+  }
+
+  private getCurrentTimestampInMilliseconds() {
+    // return Date.now();
+    return performance.now();
+  }
+
+  start() {
+    this.startTime = this.getCurrentTimestampInMilliseconds();
+  }
+
+  end() {
+    this.endTime = this.getCurrentTimestampInMilliseconds();
+    this.pushTime(this.endTime - this.startTime);
+  }
+
+  run(func: () => void) {
+    this.start();
+    func();
+    this.end();
+  }
+}
+
+export class CanvasElement {
+  element: HTMLCanvasElement;
+  constructor(
+    public width: number,
+    public height: number,
+    private willReadFrequently = false
+  ) {
+    this.element = document.createElement('canvas');
+    this.element.height = height;
+    this.element.width = width;
+  }
+
+  get context2d() {
+    if (this.willReadFrequently) {
+      return this.element.getContext('2d', { willReadFrequently: false });
+    }
+    return this.element.getContext('2d');
+  }
+
+  get contextWebGL() {
+    return this.element.getContext('webgl');
+  }
+
+  get contextWebGL2() {
+    return this.element.getContext('webgl2');
+  }
+}
+
 export class AppStore {
   cameraWidth = 1920;
   cameraHeight = 1080;
@@ -8,7 +80,18 @@ export class AppStore {
   copyWidthLocal = 2;
   copyHeightLocal = 2;
   inputVideoTrack: MediaStreamVideoTrack | null = null;
-  videoFrameProsessTimeList = [0];
+  constructNewVideoFrame = new TimeProfiler();
+  videoFrameCopyToArrayBuffer = new TimeProfiler();
+  arrayBufferToVideoFrame = new TimeProfiler();
+  drawVideoFrameOnBufferToCanvas2D = new TimeProfiler();
+  drawVideoFrameFromCameraToCanvas2D = new TimeProfiler();
+  drawVideoFrameOnBufferToCanvasGL = new TimeProfiler();
+  drawVideoFrameFromCameraToCanvasGL = new TimeProfiler();
+  profilerTrameToBitmapToFrameToBuffer = new TimeProfiler();
+  profilerFrameToCanvasToBuffer = new TimeProfiler();
+  arrayBuffer = new ArrayBuffer(0);
+  videoFrameCopyToArrayBufferRGBA = new Uint8Array(0);
+  canvasGetImageDataArrayBufferRGBA = new Uint8Array(0);
 
   constructor() {
     makeAutoObservable(this, {}, { autoBind: true });
@@ -61,7 +144,6 @@ export class AppStore {
 
   setInputVideoTrack(track: MediaStreamVideoTrack | null) {
     this.inputVideoTrack = track;
-    console.log('setInputVideoTrack', track);
   }
 
   setCameraFrameSize(width: number, height: number) {
@@ -69,16 +151,38 @@ export class AppStore {
     this.cameraHeight = height;
   }
 
+  get canvas2DForVideoFrameOnBuffer() {
+    return new CanvasElement(this.copyWidth, this.copyHeight);
+  }
+
+  get canvas2DForVideoFrameFromCamera() {
+    return new CanvasElement(this.copyWidth, this.copyHeight);
+  }
+
+  get canvas2DForResizedVideoFrameRGBA() {
+    return new CanvasElement(this.copyWidth, this.copyHeight);
+  }
+
+  get canvas2DForDrawingResizedVideoFrameRGBA() {
+    return new CanvasElement(this.copyWidth, this.copyHeight, true);
+  }
+
+  get canvasGLForVideoFrameOnBuffer() {
+    return new CanvasElement(this.copyWidth, this.copyHeight);
+  }
+
+  get canvasGLForVideoFrameFromCamera() {
+    return new CanvasElement(this.copyWidth, this.copyHeight);
+  }
+
   public get copiedBufferSize() {
     return Math.ceil(this.copyWidth * this.copyHeight * 1.5);
   }
-  private get arrayBuffer() {
-    return new ArrayBuffer(this.copiedBufferSize);
+  public get copiedRgbaBufferSize() {
+    return Math.ceil(this.copyWidth * this.copyHeight * 4);
   }
-
-  private getCurrentTimestampInMilliseconds() {
-    // return Date.now();
-    return performance.now();
+  private updateArrayBuffer() {
+    this.arrayBuffer = new ArrayBuffer(this.copiedBufferSize);
   }
 
   private get transform() {
@@ -88,22 +192,116 @@ export class AppStore {
       width: this.copyWidth,
       height: this.copyHeight,
     };
-    const arrayBuffer = this.arrayBuffer;
-
     return async (videoFrame: any, controller: any) => {
-      const start = this.getCurrentTimestampInMilliseconds();
+      if (
+        this.copiedRgbaBufferSize !==
+        this.videoFrameCopyToArrayBufferRGBA.length
+      ) {
+        this.videoFrameCopyToArrayBufferRGBA = new Uint8Array(
+          this.copiedRgbaBufferSize
+        );
+      }
 
+      this.profilerFrameToCanvasToBuffer.start();
+      this.canvas2DForDrawingResizedVideoFrameRGBA.context2d?.drawImage(
+        videoFrame,
+        0,
+        0,
+        this.copyWidth,
+        this.copyHeight
+      );
+      const arrayBuffer1 =
+        this.canvas2DForDrawingResizedVideoFrameRGBA.context2d?.getImageData(
+          0,
+          0,
+          this.copyWidth,
+          this.copyHeight
+        ).data;
+      this.profilerFrameToCanvasToBuffer.end();
+
+      this.profilerTrameToBitmapToFrameToBuffer.start();
+      const imageBitmap = await createImageBitmap(
+        videoFrame,
+        0,
+        0,
+        videoFrame.displayWidth,
+        videoFrame.displayHeight,
+        {
+          resizeHeight: this.copyHeight,
+          resizeWidth: this.copyWidth,
+        }
+      );
+      const newVideoFrameFromBitmap = new VideoFrame(imageBitmap, {
+        timestamp: videoFrame.timestamp,
+        duration: videoFrame.duration,
+        displayHeight: this.copyHeight,
+        displayWidth: this.copyWidth,
+        visibleRect,
+      });
+      await newVideoFrameFromBitmap.copyTo(
+        this.videoFrameCopyToArrayBufferRGBA
+      );
+      this.profilerTrameToBitmapToFrameToBuffer.end();
+      // console.log(this.videoFrameCopyToArrayBufferRGBA.subarray(0, 10));
+      this.canvas2DForResizedVideoFrameRGBA.context2d?.drawImage(
+        new VideoFrame(this.videoFrameCopyToArrayBufferRGBA, {
+          timestamp: videoFrame.timestamp,
+          duration: videoFrame.duration,
+          displayHeight: this.copyHeight,
+          displayWidth: this.copyWidth,
+          codedHeight: this.copyHeight,
+          codedWidth: this.copyWidth,
+          format: 'RGBA',
+        }),
+        0,
+        0
+      );
+
+      this.updateArrayBuffer();
+      this.constructNewVideoFrame.start();
       const newFrame = new VideoFrame(videoFrame, {
         timestamp: videoFrame.timestamp,
         duration: videoFrame.duration,
         visibleRect,
       });
-      await newFrame.copyTo(arrayBuffer);
-      const end = this.getCurrentTimestampInMilliseconds();
-      this.pushVideoFrameProcessTime(end - start);
+      this.constructNewVideoFrame.end();
 
+      this.videoFrameCopyToArrayBuffer.start();
+      await newFrame.copyTo(this.arrayBuffer);
+      this.videoFrameCopyToArrayBuffer.end();
+
+      this.arrayBufferToVideoFrame.start();
+      const options = {
+        format: newFrame.format!,
+        timestamp: videoFrame.timestamp,
+        duration: videoFrame.duration,
+        codedHeight: this.copyHeight,
+        codedWidth: this.copyWidth,
+        displayHeight: this.copyHeight,
+        displayWidth: this.copyWidth,
+      };
+      const newFrameFromBuffer = new VideoFrame(this.arrayBuffer, options);
+      this.arrayBufferToVideoFrame.end();
+
+      this.drawVideoFrameOnBufferToCanvas2D.run(() =>
+        this.canvas2DForVideoFrameOnBuffer.context2d?.drawImage(
+          newFrameFromBuffer,
+          0,
+          0
+        )
+      );
+
+      this.drawVideoFrameFromCameraToCanvas2D.run(() =>
+        this.canvas2DForVideoFrameFromCamera.context2d?.drawImage(
+          newFrame,
+          0,
+          0
+        )
+      );
+      newVideoFrameFromBitmap.close();
+      newFrame.close();
       videoFrame.close();
-      controller.enqueue(newFrame);
+      controller.enqueue(newFrameFromBuffer);
     };
   }
 
@@ -129,23 +327,6 @@ export class AppStore {
     } catch (e) {
       return null;
     }
-  }
-
-  pushVideoFrameProcessTime(time: number) {
-    this.videoFrameProsessTimeList.push(time);
-    if (this.videoFrameProsessTimeList.length > 100) {
-      this.videoFrameProsessTimeList.shift();
-    }
-  }
-
-  get videoFrameProcessingTime() {
-    if (this.videoFrameProsessTimeList.length === 0) {
-      return 0;
-    }
-    return (
-      this.videoFrameProsessTimeList.reduce((a, b) => a + b, 0) /
-      this.videoFrameProsessTimeList.length
-    );
   }
 }
 

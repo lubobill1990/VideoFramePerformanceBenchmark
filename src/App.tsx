@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
-import { useAppStore } from './app-store';
+import { CanvasElement, useAppStore } from './app-store';
 
 const MediaStreamTrackGetter = observer(() => {
   const { cameraHeight, cameraWidth, setInputVideoTrack } = useAppStore();
@@ -89,15 +89,55 @@ const Input = observer(() => {
 });
 
 const Statistics = observer(() => {
-  const { videoFrameProcessingTime, copiedBufferSize } = useAppStore();
+  const {
+    videoFrameCopyToArrayBuffer: videoFrameCopyToArrayBuffer,
+    arrayBufferToVideoFrame: arrayBufferToVideoFrame,
+    constructNewVideoFrame: constructNewVideoFrame,
+    drawVideoFrameOnBufferToCanvas2D: drawVideoFrameOnBufferToCanvas2D,
+    drawVideoFrameFromCameraToCanvas2D,
+    profilerTrameToBitmapToFrameToBuffer,
+    copiedBufferSize,
+    profilerFrameToCanvasToBuffer,
+  } = useAppStore();
 
   return (
     <div id='statistics'>
-      <p>Copied buffer size: {copiedBufferSize}</p>
-      <p>
-        Average time copy from VideoFrame to ArrayBuffer:{' '}
-        {videoFrameProcessingTime} ms
-      </p>
+      <table>
+        <tbody>
+          <tr>
+            <td>Copied buffer size</td>
+            <td>{copiedBufferSize}</td>
+          </tr>
+          <tr>
+            <td>Construct new VideoFrame</td>
+            <td>{constructNewVideoFrame.averageTime}</td>
+          </tr>
+          <tr>
+            <td>Copy from VideoFrame to ArrayBuffer</td>
+            <td>{videoFrameCopyToArrayBuffer.averageTime}</td>
+          </tr>
+          <tr>
+            <td>Construct VideoFrame from ArrayBuffer</td>
+            <td>{arrayBufferToVideoFrame.averageTime}</td>
+          </tr>
+          <tr>
+            <td>Draw VideoFrame on buffer to Canvas2D</td>
+            <td>{drawVideoFrameOnBufferToCanvas2D.averageTime}</td>
+          </tr>
+          <tr>
+            <td>Draw VideoFrame from camera to Canvas2D</td>
+            <td>{drawVideoFrameFromCameraToCanvas2D.averageTime}</td>
+          </tr>
+          <tr>
+            <td>VideoFrame to ArrayBuffer RGBA</td>
+            <td>{profilerTrameToBitmapToFrameToBuffer.averageTime}</td>
+          </tr>
+          <tr>
+            <td>Use canvas.getImageData ArrayBuffer RGBA</td>
+            <td>{profilerFrameToCanvasToBuffer.averageTime}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 });
@@ -124,6 +164,56 @@ const CameraSizeSelector = observer(() => {
   );
 });
 
+function useCanvasWrap(canvasElement: CanvasElement, title: string = '') {
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    canvasWrapRef.current!.appendChild(canvasElement.element);
+    return () => {
+      canvasWrapRef.current!.removeChild(canvasElement.element);
+    };
+  }, [canvasElement, canvasWrapRef]);
+
+  return (
+    <div>
+      <h5>{title}</h5>
+      <div ref={canvasWrapRef}></div>
+    </div>
+  );
+}
+
+const Canvas2DVideoFrameOnBufferWrap = observer(() => {
+  const { canvas2DForVideoFrameOnBuffer: canvas2DForVideoFrameOnBuffer } =
+    useAppStore();
+  return useCanvasWrap(canvas2DForVideoFrameOnBuffer);
+});
+const Canvas2DVideoFrameFromCameraWrap = observer(() => {
+  const { canvas2DForVideoFrameFromCamera } = useAppStore();
+  return useCanvasWrap(canvas2DForVideoFrameFromCamera);
+});
+const Canvas2DResizedVideoFrameRGBAFromCameraWrap = observer(() => {
+  const { canvas2DForResizedVideoFrameRGBA } = useAppStore();
+  return useCanvasWrap(
+    canvas2DForResizedVideoFrameRGBA,
+    'VideoFrame -> ImageBitmap -> VideoFrame -> copyTo'
+  );
+});
+const Canvas2DCanvasResizedVideoFrameRGBAFromCameraWrap = observer(() => {
+  const { canvas2DForDrawingResizedVideoFrameRGBA } = useAppStore();
+  return useCanvasWrap(
+    canvas2DForDrawingResizedVideoFrameRGBA,
+    'Canvas drawing for RGBA'
+  );
+});
+const CanvasWebGLVideoFrameOnBufferWrap = observer(() => {
+  const { canvasGLForVideoFrameOnBuffer } = useAppStore();
+  return useCanvasWrap(canvasGLForVideoFrameOnBuffer);
+});
+const CanvasWebGLVideoFrameFromCameraWrap = observer(() => {
+  const { canvasGLForVideoFrameFromCamera } = useAppStore();
+  return useCanvasWrap(canvasGLForVideoFrameFromCamera);
+});
+
 const App = observer(() => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { processingGenerator } = useAppStore();
@@ -148,6 +238,12 @@ const App = observer(() => {
       <Input></Input>
       <Statistics></Statistics>
       <video ref={videoRef}></video>
+      <Canvas2DVideoFrameOnBufferWrap></Canvas2DVideoFrameOnBufferWrap>
+      <Canvas2DVideoFrameFromCameraWrap></Canvas2DVideoFrameFromCameraWrap>
+      <Canvas2DResizedVideoFrameRGBAFromCameraWrap></Canvas2DResizedVideoFrameRGBAFromCameraWrap>
+      <Canvas2DCanvasResizedVideoFrameRGBAFromCameraWrap></Canvas2DCanvasResizedVideoFrameRGBAFromCameraWrap>
+      <CanvasWebGLVideoFrameOnBufferWrap></CanvasWebGLVideoFrameOnBufferWrap>
+      <CanvasWebGLVideoFrameFromCameraWrap></CanvasWebGLVideoFrameFromCameraWrap>
     </div>
   );
 });
